@@ -9,6 +9,7 @@ int APS5_VABI sched_get_priority_max_nid_postfix(int policy);
 int APS5_VABI sched_get_priority_min_nid_postfix(int policy);
 int APS5_VABI getpriority_nid_postfix(int which, int who);
 int APS5_VABI setpriority_nid_postfix(int which, int who, int niceval);
+int APS5_VABI nice_nid_postfix(int incr);
 struct GuestRtPrio {
     std::uint16_t type;
     std::uint16_t prio;
@@ -79,6 +80,14 @@ int main() {
     Require(setpriority_nid_postfix(PrioProcess, 0, 99) == 0 && getpriority_nid_postfix(PrioProcess, 0) == 20);
     Require(setpriority_nid_postfix(PrioProcess, 0, -99) == 0 && getpriority_nid_postfix(PrioProcess, 0) == -20);
     Require(setpriority_nid_postfix(PrioProcess, 0, 0) == 0 && getpriority_nid_postfix(PrioProcess, 0) == 0);
+    *__error_nid_postfix() = 13;
+    Require(nice_nid_postfix(10) == 0 && getpriority_nid_postfix(PrioProcess, 0) == 10 && *__error_nid_postfix() == 13);
+    Require(nice_nid_postfix(15) == 0 && getpriority_nid_postfix(PrioProcess, 0) == 20 && *__error_nid_postfix() == 13);
+    Require(nice_nid_postfix(-50) == 0 && getpriority_nid_postfix(PrioProcess, 0) == -20 && *__error_nid_postfix() == 13);
+    Require(nice_nid_postfix(20) == 0 && getpriority_nid_postfix(PrioProcess, 0) == 0 && *__error_nid_postfix() == 13);
+    Require(nice_nid_postfix(100) == 0 && getpriority_nid_postfix(PrioProcess, 0) == 20 && *__error_nid_postfix() == 13);
+    Require(nice_nid_postfix(-100) == 0 && getpriority_nid_postfix(PrioProcess, 0) == -20 && *__error_nid_postfix() == 13);
+    Require(nice_nid_postfix(20) == 0 && getpriority_nid_postfix(PrioProcess, 0) == 0 && *__error_nid_postfix() == 13);
     GuestRtPrio rtprio{7, 7};
     bool rtprioThrew = false;
     try { rtprio_thread_nid_postfix(0, 0, &rtprio); } catch (const std::exception&) { rtprioThrew = true; }

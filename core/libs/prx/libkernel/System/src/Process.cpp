@@ -607,6 +607,14 @@ int APS5_VABI setpriority_nid_postfix(int which, int who, int niceval) {
     return 0;
 }
 
+int APS5_VABI nice_nid_postfix(int incr) {
+    const int current = getpriority_nid_postfix(guestPriorityProcess, 0);
+    const std::int64_t target = static_cast<std::int64_t>(current) + incr;
+    const int clamped = target < guestNiceMin ? guestNiceMin : (target > guestNiceMax ? guestNiceMax : static_cast<int>(target));
+    guestNice.store(clamped, std::memory_order_relaxed);
+    return 0;
+}
+
 int APS5_VABI getdtablesize_nid_postfix(void) {
     NotImplemented_nid_no_patch(__func__);
     return -1;
