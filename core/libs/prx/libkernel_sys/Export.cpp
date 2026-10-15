@@ -22,6 +22,7 @@
 #include "prx/libkernel/File/include/DirectoryDescriptor.hpp"
 #include "prx/libc/include/CreationMask.hpp"
 #include "prx/libkernel/File/include/FileFlags.hpp"
+#include "prx/libkernel/File/include/NativeStat.hpp"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -634,6 +635,47 @@ int APS5_VABI renameat_nid_postfix(int oldfd, const char* from, int newfd, const
     RecordWrittenPath_nid_no_patch(source);
     RecordWrittenPath_nid_no_patch(destination);
     return 0;
+}
+
+int APS5_VABI stat_nid_postfix(const char* path, FileStat* sb);
+int APS5_VABI lstat_nid_postfix(const char* path, FileStat* sb);
+
+int APS5_VABI fstatat_nid_postfix(int fd, const char* path, FileStat* sb, int flag) {
+    if (flag != 0 && flag != GuestAtSymlinkNofollow) return static_cast<int>(Fail(GuestEinval));
+    if (path == nullptr || sb == nullptr) return static_cast<int>(Fail(GuestEfault));
+    if (*path == '\0') return static_cast<int>(Fail(GuestEnoent));
+    if (fd == GuestAtFdcwd || *path == '/') {
+        return (flag == GuestAtSymlinkNofollow) ? lstat_nid_postfix(path, sb) : stat_nid_postfix(path, sb);
+    }
+    if (std::strlen(path) >= GuestPathMax || HasLongComponent(path)) return static_cast<int>(Fail(GuestEnametoolong));
+    int error = 0;
+    const char* base = GetDirectoryDescriptorPath_nid_no_patch(fd, &error);
+    if (base == nullptr) return static_cast<int>(Fail(error));
+    auto native = std::filesystem::path(reinterpret_cast<const char8_t*>(base)) /
+                  std::filesystem::path(reinterpret_cast<const char8_t*>(path));
+    const std::string_view pathView(path);
+    const bool trailingSlash = !pathView.empty() && pathView.back() == '/';
+    std::error_code statusError;
+    if (flag == GuestAtSymlinkNofollow) {
+        const auto status = std::filesystem::symlink_status(native, statusError);
+        if (status.type() == std::filesystem::file_type::not_found) {
+            return static_cast<int>(Fail(HasNonDirectoryPrefix(native) ? GuestEnotdir : GuestEnoent));
+        }
+        if (trailingSlash && !std::filesystem::is_directory(status)) return static_cast<int>(Fail(GuestEnotdir));
+        if (!File::FillLinkStat(native, sb)) return static_cast<int>(Fail(GuestFileError(errno)));
+    } else {
+        const auto status = std::filesystem::status(native, statusError);
+        if (status.type() == std::filesystem::file_type::not_found) {
+            return static_cast<int>(Fail(HasNonDirectoryPrefix(native) ? GuestEnotdir : GuestEnoent));
+        }
+        if (trailingSlash && !std::filesystem::is_directory(status)) return static_cast<int>(Fail(GuestEnotdir));
+        File::FillFileStat(native, sb);
+    }
+    return 0;
+}
+
+int APS5_VABI _fstatat_nid_postfix(int fd, const char* path, FileStat* sb, int flag) {
+    return fstatat_nid_postfix(fd, path, sb, flag);
 }
 
 }

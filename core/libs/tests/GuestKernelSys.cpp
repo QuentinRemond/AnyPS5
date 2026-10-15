@@ -1,5 +1,6 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "prx/libkernel/File/include/FileFlags.hpp"
+#include "SceTypes.hpp"
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -43,6 +44,8 @@ std::int64_t APS5_VABI readlinkat_nid_postfix(int, const char*, char*, std::size
 int APS5_VABI mkdirat_nid_postfix(int, const char*, std::uint16_t);
 int APS5_VABI renameat_nid_postfix(int, const char*, int, const char*);
 int APS5_VABI fchmodat_nid_postfix(int, const char*, int, int);
+int APS5_VABI fstatat_nid_postfix(int, const char*, FileStat*, int);
+int APS5_VABI _fstatat_nid_postfix(int, const char*, FileStat*, int);
 std::int64_t APS5_VABI sceKernelRead(int, void*, std::size_t);
 std::uint16_t APS5_VABI umask_nid_postfix(std::uint16_t);
 int* APS5_VABI __error_nid_postfix();
@@ -464,7 +467,42 @@ int main() {
     Require(fchmodat_nid_postfix(base, "loop/x", 0600, 0) == -1 && Error() == 62);
     Require(fchmodat_nid_postfix(base, longName.c_str(), 0600, 0) == -1 && Error() == 63);
 #endif
+    for (const auto& fn : {fstatat_nid_postfix, _fstatat_nid_postfix}) {
+        FileStat st{};
+        Require(fn(base, nullptr, &st, 0) == -1 && Error() == 14);
+        Require(fn(base, "file.txt", nullptr, 0) == -1 && Error() == 14);
+        Require(fn(base, "", &st, 0) == -1 && Error() == 2);
+        Require(fn(base, "file.txt", &st, 0x4000) == -1 && Error() == 22);
+        Require(fn(base, "file.txt", &st, 0x800) == -1 && Error() == 22);
+        Require(fn(-1, "file.txt", &st, 0) == -1 && Error() == 9);
+        const int badFd = sceKernelOpen(file.c_str(), SCE_KERNEL_O_RDONLY, 0);
+        Require(badFd >= 0);
+        Require(fn(badFd, "file.txt", &st, 0) == -1 && Error() == 20);
+        Require(sceKernelClose(badFd) == 0);
+        Require(fn(base, "missing.bin", &st, 0) == -1 && Error() == 2);
+        Require(fn(base, "missing.bin", &st, 0x200) == -1 && Error() == 2);
+        Require(fn(base, "file.txt/child", &st, 0) == -1 && Error() == 20);
+        Require(fn(base, "file.txt/", &st, 0) == -1 && Error() == 20);
+        Require(fn(base, "file.txt/", &st, 0x200) == -1 && Error() == 20);
+        Require(fn(base, longName.c_str(), &st, 0) == -1 && Error() == 63);
+        Require(fn(base, "file.txt", &st, 0) == 0 && (st.st_mode & 0170000) == 0100000);
+        Require(fn(base, "file.txt", &st, 0x200) == 0 && (st.st_mode & 0170000) == 0100000);
+        Require(fn(base, ".", &st, 0) == 0 && (st.st_mode & 0170000) == 0040000);
+        Require(fn(-100, file.c_str(), &st, 0) == 0 && (st.st_mode & 0170000) == 0100000);
+        Require(fn(-100, (root / "dir").string().c_str(), &st, 0) == 0 && (st.st_mode & 0170000) == 0040000);
+        if (created == 0) {
+            Require(fn(-100, symbolic.c_str(), &st, 0) == 0 && (st.st_mode & 0170000) == 0100000);
+            Require(fn(-100, symbolic.c_str(), &st, 0x200) == 0 && (st.st_mode & 0170000) == 0120000);
+            Require(fn(base, "symbolic", &st, 0) == 0 && (st.st_mode & 0170000) == 0100000);
+            Require(fn(base, "symbolic", &st, 0x200) == 0 && (st.st_mode & 0170000) == 0120000);
+        }
+    }
     Require(sceKernelClose(base) == 0);
+    {
+        FileStat st{};
+        Require(fstatat_nid_postfix(base, "file.txt", &st, 0) == -1 && Error() == 9);
+        Require(_fstatat_nid_postfix(base, "file.txt", &st, 0) == -1 && Error() == 9);
+    }
 #ifndef _WIN32
     if (created == 0) {
         const auto throughLink = (root / "through-link.bin").string();
