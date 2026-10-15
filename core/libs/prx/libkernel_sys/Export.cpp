@@ -83,6 +83,7 @@ constexpr int PcAclPathMax = 60;
 constexpr int PcMacPresent = 63;
 constexpr int PcAclNfs4 = 64;
 constexpr int GuestAtSymlinkNofollow = 0x0200;
+constexpr int GuestAtSymlinkFollow = 0x0400;
 
 int GuestFileError(int error) {
     switch (error) {
@@ -319,24 +320,61 @@ std::int64_t APS5_VABI pathconf_nid_postfix(const char* path, int name) {
     }
 }
 
+int CreateNativeHardLink(const std::filesystem::path& source, const std::filesystem::path& destination, bool followSymlink) {
+    std::error_code error;
+    const auto status = followSymlink ? std::filesystem::status(source, error) : std::filesystem::symlink_status(source, error);
+    if (!std::filesystem::exists(status)) return static_cast<int>(Fail(GuestEnoent));
+    if (std::filesystem::is_directory(status)) return static_cast<int>(Fail(GuestEperm));
+    if (std::filesystem::exists(std::filesystem::symlink_status(destination, error))) return static_cast<int>(Fail(GuestEexist));
+    if (!std::filesystem::is_directory(destination.parent_path(), error)) return static_cast<int>(Fail(GuestEnoent));
+    const auto target = (followSymlink && std::filesystem::is_symlink(source, error)) ? std::filesystem::canonical(source, error) : source;
+    if (!error) std::filesystem::create_hard_link(target, destination, error);
+    if (error == std::errc::cross_device_link) return static_cast<int>(Fail(GuestExdev));
+    if (error == std::errc::operation_not_permitted || error == std::errc::permission_denied) return static_cast<int>(Fail(GuestEperm));
+    if (error) throw std::system_error(error, "link");
+    RecordWrittenPath_nid_no_patch(destination);
+    return 0;
+}
+
 int APS5_VABI link_nid_postfix(const char* existing, const char* created) {
     if (existing == nullptr || created == nullptr) return static_cast<int>(Fail(GuestEfault));
     if (*existing == '\0' || *created == '\0') return static_cast<int>(Fail(GuestEnoent));
     std::filesystem::path source, destination;
     if (const int error = ResolvePathError_nid_no_patch(existing, source)) return static_cast<int>(Fail(error));
     if (const int error = ResolvePathError_nid_no_patch(created, destination)) return static_cast<int>(Fail(error));
-    std::error_code error;
-    const auto status = std::filesystem::status(source, error);
-    if (!std::filesystem::exists(status)) return static_cast<int>(Fail(GuestEnoent));
-    if (std::filesystem::is_directory(status)) return static_cast<int>(Fail(GuestEperm));
-    if (std::filesystem::exists(std::filesystem::symlink_status(destination, error))) return static_cast<int>(Fail(GuestEexist));
-    if (!std::filesystem::is_directory(destination.parent_path(), error)) return static_cast<int>(Fail(GuestEnoent));
-    const auto target = std::filesystem::is_symlink(source, error) ? std::filesystem::canonical(source, error) : source;
-    if (!error) std::filesystem::create_hard_link(target, destination, error);
-    if (error == std::errc::cross_device_link) return static_cast<int>(Fail(GuestExdev));
-    if (error) throw std::system_error(error, "link");
-    RecordWrittenPath_nid_no_patch(destination);
-    return 0;
+    return CreateNativeHardLink(source, destination, true);
+}
+
+int APS5_VABI linkat_nid_postfix(int fd1, const char* path1, int fd2, const char* path2, int flag) {
+    if (flag & ~GuestAtSymlinkFollow) return static_cast<int>(Fail(GuestEinval));
+    if (path1 == nullptr || path2 == nullptr) return static_cast<int>(Fail(GuestEfault));
+    if (*path1 == '\0' || *path2 == '\0') return static_cast<int>(Fail(GuestEnoent));
+
+    std::filesystem::path source;
+    if (fd1 == GuestAtFdcwd || *path1 == '/') {
+        if (const int error = ResolvePathError_nid_no_patch(path1, source)) return static_cast<int>(Fail(error));
+    } else {
+        if (std::strlen(path1) >= GuestPathMax || HasLongComponent(path1)) return static_cast<int>(Fail(GuestEnametoolong));
+        int error = 0;
+        const char* base1 = GetDirectoryDescriptorPath_nid_no_patch(fd1, &error);
+        if (base1 == nullptr) return static_cast<int>(Fail(error));
+        source = std::filesystem::path(reinterpret_cast<const char8_t*>(base1)) /
+                 std::filesystem::path(reinterpret_cast<const char8_t*>(path1));
+    }
+
+    std::filesystem::path destination;
+    if (fd2 == GuestAtFdcwd || *path2 == '/') {
+        if (const int error = ResolvePathError_nid_no_patch(path2, destination)) return static_cast<int>(Fail(error));
+    } else {
+        if (std::strlen(path2) >= GuestPathMax || HasLongComponent(path2)) return static_cast<int>(Fail(GuestEnametoolong));
+        int error = 0;
+        const char* base2 = GetDirectoryDescriptorPath_nid_no_patch(fd2, &error);
+        if (base2 == nullptr) return static_cast<int>(Fail(error));
+        destination = std::filesystem::path(reinterpret_cast<const char8_t*>(base2)) /
+                      std::filesystem::path(reinterpret_cast<const char8_t*>(path2));
+    }
+
+    return CreateNativeHardLink(source, destination, (flag & GuestAtSymlinkFollow) != 0);
 }
 
 int APS5_VABI fchdir_nid_postfix(int fd) {
