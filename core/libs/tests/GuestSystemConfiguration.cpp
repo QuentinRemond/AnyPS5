@@ -24,6 +24,7 @@ int APS5_VABI sysctlnametomib_nid_postfix(const char*, int*, std::size_t*);
 int APS5_VABI sceKernelGetSystemSwVersion_nid_postfix(SceKernelSystemSwVersion*);
 int APS5_VABI getpid_nid_postfix();
 std::uint64_t APS5_VABI sceKernelGetTscFrequency(void);
+int APS5_VABI getdtablesize_nid_postfix(void);
 extern char** environ_nid_postfix;
 }
 static void Require(bool value) { if (!value) std::abort(); }
@@ -413,6 +414,7 @@ int main() {
     CheckNameToMib();
     *__error_nid_postfix() = 13;
     Require(sysconf_nid_postfix(3) == 128);
+    Require(sysconf_nid_postfix(5) == getdtablesize_nid_postfix());
     Require(sysconf_nid_postfix(47) == 0x4000);
     Require(getpagesize_nid_postfix() == sysconf_nid_postfix(47));
     Require(sysconf_nid_postfix(57) > 0);

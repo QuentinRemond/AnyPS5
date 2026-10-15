@@ -19,6 +19,7 @@
 extern "C" int* APS5_VABI __error_nid_postfix();
 extern "C" int APS5_VABI getpid_nid_postfix();
 extern "C" std::uint64_t APS5_VABI sceKernelGetTscFrequency(void);
+extern "C" int APS5_VABI getdtablesize_nid_postfix(void);
 
 struct SceKernelSystemSwVersion {
     std::uint64_t size;
@@ -57,6 +58,9 @@ std::int64_t APS5_VABI sysconf_nid_postfix(int name) {
     switch (name) {
         case 3: // _SC_CLK_TCK
             result = 128;
+            break;
+        case 5:
+            result = getdtablesize_nid_postfix();
             break;
         case 47: // _SC_PAGESIZE
             result = PS5_PAGE_SIZE;
