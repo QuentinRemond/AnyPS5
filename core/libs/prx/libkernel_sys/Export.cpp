@@ -368,15 +368,7 @@ int APS5_VABI chroot_nid_postfix(const char* path) {
     throw std::runtime_error(std::string("chroot: changing the root directory to ") + path + " is not supported, the guest path resolver keeps a fixed root");
 }
 
-int APS5_VABI symlink_nid_postfix(const char* target, const char* created) {
-    if (target == nullptr || created == nullptr) return static_cast<int>(Fail(GuestEfault));
-    if (*target == '\0' || *created == '\0') return static_cast<int>(Fail(GuestEnoent));
-    if (*target == '/') {
-        NotImplemented_nid_no_patch("symlink: absolute targets");
-        return -1;
-    }
-    std::filesystem::path native;
-    if (const int error = ResolvePathError_nid_no_patch(created, native)) return static_cast<int>(Fail(error));
+int CreateNativeSymlink(const char* target, const std::filesystem::path& native) {
     std::error_code error;
 #ifdef _WIN32
     if (GetFileAttributesW(native.wstring().c_str()) != INVALID_FILE_ATTRIBUTES) return static_cast<int>(Fail(GuestEexist));
@@ -405,6 +397,35 @@ int APS5_VABI symlink_nid_postfix(const char* target, const char* created) {
 #endif
     RecordWrittenPath_nid_no_patch(native);
     return 0;
+}
+
+int APS5_VABI symlink_nid_postfix(const char* target, const char* created) {
+    if (target == nullptr || created == nullptr) return static_cast<int>(Fail(GuestEfault));
+    if (*target == '\0' || *created == '\0') return static_cast<int>(Fail(GuestEnoent));
+    if (*target == '/') {
+        NotImplemented_nid_no_patch("symlink: absolute targets");
+        return -1;
+    }
+    std::filesystem::path native;
+    if (const int error = ResolvePathError_nid_no_patch(created, native)) return static_cast<int>(Fail(error));
+    return CreateNativeSymlink(target, native);
+}
+
+int APS5_VABI symlinkat_nid_postfix(const char* target, int fd, const char* created) {
+    if (target == nullptr || created == nullptr) return static_cast<int>(Fail(GuestEfault));
+    if (*target == '\0' || *created == '\0') return static_cast<int>(Fail(GuestEnoent));
+    if (fd == GuestAtFdcwd || *created == '/') return symlink_nid_postfix(target, created);
+    if (*target == '/') {
+        NotImplemented_nid_no_patch("symlinkat: absolute targets");
+        return -1;
+    }
+    if (std::strlen(created) >= GuestPathMax || HasLongComponent(created)) return static_cast<int>(Fail(GuestEnametoolong));
+    int error = 0;
+    const char* base = GetDirectoryDescriptorPath_nid_no_patch(fd, &error);
+    if (base == nullptr) return static_cast<int>(Fail(error));
+    const auto native = std::filesystem::path(reinterpret_cast<const char8_t*>(base)) /
+                        std::filesystem::path(reinterpret_cast<const char8_t*>(created));
+    return CreateNativeSymlink(target, native);
 }
 
 int APS5_VABI open_nid_postfix(const char* path, int flags, int mode);

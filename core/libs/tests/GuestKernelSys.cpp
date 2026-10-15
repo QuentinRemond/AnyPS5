@@ -37,6 +37,7 @@ int APS5_VABI sceKernelClose(int);
 int APS5_VABI setsid_nid_postfix(void);
 int APS5_VABI link_nid_postfix(const char*, const char*);
 int APS5_VABI symlink_nid_postfix(const char*, const char*);
+int APS5_VABI symlinkat_nid_postfix(const char*, int, const char*);
 int APS5_VABI openat_nid_postfix(int, const char*, int, ...);
 int APS5_VABI unlinkat_nid_postfix(int, const char*, int);
 std::int64_t APS5_VABI readlinkat_nid_postfix(int, const char*, char*, std::size_t);
@@ -411,6 +412,29 @@ int main() {
     Require(renameat_nid_postfix(base, "made.bin", -1, "renamed.txt") == -1 && Error() == 9);
     Require(renameat_nid_postfix(bad, "made.bin", base, "renamed.txt") == -1 && Error() == 20);
     Require(renameat_nid_postfix(base, "made.bin", bad, "renamed.txt") == -1 && Error() == 20);
+    Require(symlinkat_nid_postfix(nullptr, base, "link.txt") == -1 && Error() == 14);
+    Require(symlinkat_nid_postfix("target.txt", base, nullptr) == -1 && Error() == 14);
+    Require(symlinkat_nid_postfix("", base, "link.txt") == -1 && Error() == 2);
+    Require(symlinkat_nid_postfix("target.txt", base, "") == -1 && Error() == 2);
+    Require(symlinkat_nid_postfix("target.txt", -1, "link.txt") == -1 && Error() == 9);
+    Require(symlinkat_nid_postfix("target.txt", bad, "link.txt") == -1 && Error() == 20);
+    bool symlinkThrows = false;
+    try {
+        symlinkat_nid_postfix("/abs_target", base, "link.txt");
+    } catch (const std::runtime_error&) {
+        symlinkThrows = true;
+    }
+    Require(symlinkThrows);
+    Require(symlinkat_nid_postfix("target.txt", base, longName.c_str()) == -1 && Error() == 63);
+    Require(symlinkat_nid_postfix("file.txt", base, "at_link.txt") == 0);
+    Require(std::filesystem::is_symlink(root / "at_link.txt"));
+    Require(readlinkat_nid_postfix(base, "at_link.txt", buffer, sizeof(buffer)) == 8 && std::memcmp(buffer, "file.txt", 8) == 0);
+    Require(symlinkat_nid_postfix("file.txt", base, "at_link.txt") == -1 && Error() == 17);
+    Require(symlinkat_nid_postfix("file.txt", -100, (root / "at_link_cwd.txt").string().c_str()) == 0);
+    Require(std::filesystem::is_symlink(root / "at_link_cwd.txt"));
+    const auto guestAbsLink = "/" + root.filename().string() + "/at_link_abs.txt";
+    Require(symlinkat_nid_postfix("file.txt", -1, guestAbsLink.c_str()) == 0);
+    Require(std::filesystem::is_symlink(root / "at_link_abs.txt"));
     Require(sceKernelClose(bad) == 0);
     const auto longPart = std::string(256, 'y');
     Require(renameat_nid_postfix(base, longPart.c_str(), base, "renamed.txt") == -1 && Error() == 63);
