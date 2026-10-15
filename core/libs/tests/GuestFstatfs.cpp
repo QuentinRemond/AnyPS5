@@ -38,6 +38,8 @@ static_assert(sizeof(GuestStatfs) == 472);
 
 extern "C" {
 int APS5_VABI _fstatfs_nid_postfix(int, GuestStatfs*);
+int APS5_VABI _statfs_nid_postfix(const char*, GuestStatfs*);
+int APS5_VABI statfs_nid_postfix(const char*, GuestStatfs*);
 int APS5_VABI sceKernelOpen(const char*, int, std::uint16_t);
 int APS5_VABI close_nid_postfix(int);
 int APS5_VABI pipe_nid_postfix(int*);
@@ -54,8 +56,10 @@ static void Check(bool value, int line) {
 #define Require(value) Check((value), __LINE__)
 
 static constexpr std::uint32_t StatfsVersion = 0x20030518;
+static constexpr int GuestEnoent = 2;
 static constexpr int GuestEbadf = 9;
 static constexpr int GuestEfault = 14;
+static constexpr int GuestEnotdir = 20;
 static constexpr int GuestEinval = 22;
 static constexpr int DescriptorSetSize = 1024;
 
@@ -127,6 +131,44 @@ int main() {
 #ifndef _WIN32
     RequireFailure(file, GuestEbadf);
 #endif
+
+    GuestStatfs pathFs{};
+    Require(_statfs_nid_postfix("/anyps5-fstatfs-test/file.txt", &pathFs) == 0);
+    Require(pathFs.f_version == StatfsVersion);
+    Require(pathFs.f_bsize > 0);
+    Require(pathFs.f_blocks > 0);
+    GuestStatfs publicFs{};
+    Require(statfs_nid_postfix("/anyps5-fstatfs-test/file.txt", &publicFs) == 0);
+    Require(std::memcmp(&pathFs, &publicFs, sizeof(pathFs)) == 0);
+
+    GuestStatfs dirFs{};
+    Require(_statfs_nid_postfix("/anyps5-fstatfs-test", &dirFs) == 0);
+    Require(dirFs.f_version == StatfsVersion);
+    Require(dirFs.f_bsize == pathFs.f_bsize);
+    Require(dirFs.f_blocks == pathFs.f_blocks);
+    GuestStatfs trailingFs{};
+    Require(_statfs_nid_postfix("/anyps5-fstatfs-test/", &trailingFs) == 0);
+    Require(trailingFs.f_bsize == pathFs.f_bsize);
+    Require(trailingFs.f_blocks == pathFs.f_blocks);
+
+    *__error_nid_postfix() = 0;
+    Require(_statfs_nid_postfix("/anyps5-fstatfs-test/file.txt", nullptr) == -1);
+    Require(*__error_nid_postfix() == GuestEfault);
+    *__error_nid_postfix() = 0;
+    Require(_statfs_nid_postfix(nullptr, &pathFs) == -1);
+    Require(*__error_nid_postfix() == GuestEfault);
+    *__error_nid_postfix() = 0;
+    Require(_statfs_nid_postfix("", &pathFs) == -1);
+    Require(*__error_nid_postfix() == GuestEnoent);
+    *__error_nid_postfix() = 0;
+    Require(_statfs_nid_postfix("/anyps5-fstatfs-test/missing.txt", &pathFs) == -1);
+    Require(*__error_nid_postfix() == GuestEnoent);
+    *__error_nid_postfix() = 0;
+    Require(_statfs_nid_postfix("/anyps5-fstatfs-test/file.txt/not_a_dir", &pathFs) == -1);
+    Require(*__error_nid_postfix() == GuestEnotdir);
+    *__error_nid_postfix() = 0;
+    Require(_statfs_nid_postfix("/anyps5-fstatfs-test/file.txt/", &pathFs) == -1);
+    Require(*__error_nid_postfix() == GuestEnotdir);
 
     std::filesystem::remove_all(root);
 }
