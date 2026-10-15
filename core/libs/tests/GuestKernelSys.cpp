@@ -1,3 +1,4 @@
+#include "SceTypes.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "prx/libkernel/File/include/FileFlags.hpp"
 #include <chrono>
@@ -43,6 +44,8 @@ std::int64_t APS5_VABI readlinkat_nid_postfix(int, const char*, char*, std::size
 int APS5_VABI mkdirat_nid_postfix(int, const char*, std::uint16_t);
 int APS5_VABI renameat_nid_postfix(int, const char*, int, const char*);
 int APS5_VABI fchmodat_nid_postfix(int, const char*, int, int);
+int APS5_VABI futimesat_nid_postfix(int, const char*, const KernelTimeval*);
+int APS5_VABI _futimesat_nid_postfix(int, const char*, const KernelTimeval*);
 std::int64_t APS5_VABI sceKernelRead(int, void*, std::size_t);
 std::uint16_t APS5_VABI umask_nid_postfix(std::uint16_t);
 int* APS5_VABI __error_nid_postfix();
@@ -357,6 +360,7 @@ int main() {
     Require(mkdirat_nid_postfix(base, longName.c_str(), 0700) == -1 && Error() == 63);
     Require(mkdirat_nid_postfix(base, "dir/../dotdot_dir", 0700) == 0 && std::filesystem::is_directory(root / "dotdot_dir"));
     Require(unlinkat_nid_postfix(plain, "file.txt", 0) == -1 && Error() == 20);
+    Require(futimesat_nid_postfix(plain, "file.txt", nullptr) == -1 && Error() == 20);
     Require(unlinkat_nid_postfix(-1, "file.txt", 0) == -1 && Error() == 9);
     Require(sceKernelClose(plain) == 0);
     Require(unlinkat_nid_postfix(base, "file.txt", 1) == -1 && Error() == 22);
@@ -463,6 +467,26 @@ int main() {
     Require(symlink_nid_postfix("loop", (root / "loop").string().c_str()) == 0);
     Require(fchmodat_nid_postfix(base, "loop/x", 0600, 0) == -1 && Error() == 62);
     Require(fchmodat_nid_postfix(base, longName.c_str(), 0600, 0) == -1 && Error() == 63);
+#endif
+    const KernelTimeval testTimes[2]{{1000000000, 123456}, {1000000001, 500000}};
+    Require(futimesat_nid_postfix(base, "file.txt", testTimes) == 0);
+    const KernelTimeval updateTimes[2]{{1000000002, 654321}, {1000000003, 250000}};
+    Require(_futimesat_nid_postfix(base, "file.txt", updateTimes) == 0);
+    Require(futimesat_nid_postfix(base, "file.txt", nullptr) == 0);
+    Require(futimesat_nid_postfix(-100, (root / "file.txt").string().c_str(), testTimes) == 0);
+    Require(futimesat_nid_postfix(base, "missing.bin", testTimes) == -1 && Error() == 2);
+    Require(futimesat_nid_postfix(base, nullptr, testTimes) == -1 && Error() == 14);
+    Require(futimesat_nid_postfix(base, "", testTimes) == -1 && Error() == 2);
+    const KernelTimeval invalidUsec1[2]{{1000000000, -1}, {1000000000, 0}};
+    Require(futimesat_nid_postfix(base, "file.txt", invalidUsec1) == -1 && Error() == 22);
+    const KernelTimeval invalidUsec2[2]{{1000000000, 0}, {1000000000, 1000000}};
+    Require(futimesat_nid_postfix(base, "file.txt", invalidUsec2) == -1 && Error() == 22);
+    Require(futimesat_nid_postfix(-1, "file.txt", testTimes) == -1 && Error() == 9);
+    Require(futimesat_nid_postfix(base, ".", testTimes) == 0);
+    Require(futimesat_nid_postfix(base, "..", testTimes) == 0);
+#ifndef _WIN32
+    Require(futimesat_nid_postfix(base, "loop/x", testTimes) == -1 && Error() == 62);
+    Require(futimesat_nid_postfix(base, longName.c_str(), testTimes) == -1 && Error() == 63);
 #endif
     Require(sceKernelClose(base) == 0);
 #ifndef _WIN32

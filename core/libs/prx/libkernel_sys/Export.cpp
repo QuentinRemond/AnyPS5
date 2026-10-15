@@ -14,6 +14,7 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 #endif
 #include "SceTypes.hpp"
@@ -30,6 +31,7 @@
 #include <io.h>
 #include <sys/stat.h>
 #include "prx/libkernel/File/include/WindowsSymbolicLink.hpp"
+#include "prx/libkernel/File/include/WindowsFileTime.hpp"
 #ifndef SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
 #define SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE 0x2
 #endif
@@ -634,6 +636,74 @@ int APS5_VABI renameat_nid_postfix(int oldfd, const char* from, int newfd, const
     RecordWrittenPath_nid_no_patch(source);
     RecordWrittenPath_nid_no_patch(destination);
     return 0;
+}
+
+int APS5_VABI utimes_nid_postfix(const char* path, const KernelTimeval* times);
+
+int APS5_VABI futimesat_nid_postfix(int fd, const char* path, const KernelTimeval* times) {
+    if (path == nullptr) return static_cast<int>(Fail(GuestEfault));
+    if (*path == '\0') return static_cast<int>(Fail(GuestEnoent));
+    if (times != nullptr) {
+        for (int i = 0; i < 2; ++i) {
+            if (times[i].tv_usec < 0 || times[i].tv_usec >= 1000000) return static_cast<int>(Fail(GuestEinval));
+        }
+    }
+    if (fd == GuestAtFdcwd || *path == '/') return utimes_nid_postfix(path, times);
+    if (std::strlen(path) >= GuestPathMax || HasLongComponent(path)) return static_cast<int>(Fail(GuestEnametoolong));
+    int error = 0;
+    const char* base = GetDirectoryDescriptorPath_nid_no_patch(fd, &error);
+    if (base == nullptr) return static_cast<int>(Fail(error));
+    auto native = std::filesystem::path(reinterpret_cast<const char8_t*>(base)) /
+                  std::filesystem::path(reinterpret_cast<const char8_t*>(path));
+#ifdef _WIN32
+    FILETIME access{}, modified{};
+    if (times == nullptr) {
+        GetSystemTimePreciseAsFileTime(&access);
+        modified = access;
+    } else if (!File::WindowsFileTime::Encode(times[0], access) || !File::WindowsFileTime::Encode(times[1], modified)) {
+        return static_cast<int>(Fail(GuestEinval));
+    }
+    const auto handle = CreateFileW(native.wstring().c_str(), FILE_WRITE_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        const DWORD code = GetLastError();
+        if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND) {
+            if (HasNonDirectoryPrefix(native)) return static_cast<int>(Fail(GuestEnotdir));
+            return static_cast<int>(Fail(GuestEnoent));
+        }
+        if (code == ERROR_ACCESS_DENIED) return static_cast<int>(Fail(GuestEperm));
+        File::WindowsFileTime::Failure(code);
+        return static_cast<int>(Fail(GuestFileError(errno)));
+    }
+    const bool set = SetFileTime(handle, nullptr, &access, &modified);
+    CloseHandle(handle);
+    if (!set) {
+        File::WindowsFileTime::Failure(GetLastError());
+        return static_cast<int>(Fail(GuestFileError(errno)));
+    }
+#else
+    int result = 0;
+    if (times == nullptr) {
+        result = ::utimes(native.c_str(), nullptr);
+    } else {
+        struct timeval values[2]{{static_cast<time_t>(times[0].tv_sec), static_cast<suseconds_t>(times[0].tv_usec)},
+            {static_cast<time_t>(times[1].tv_sec), static_cast<suseconds_t>(times[1].tv_usec)}};
+        result = ::utimes(native.c_str(), values);
+    }
+    if (result != 0) {
+        const int nativeError = errno;
+        if ((nativeError == ENOENT || nativeError == ENOTDIR) && HasNonDirectoryPrefix(native))
+            return static_cast<int>(Fail(GuestEnotdir));
+        return static_cast<int>(Fail(GuestFileError(nativeError)));
+    }
+#endif
+    RecordWrittenPath_nid_no_patch(native);
+    return 0;
+}
+
+int APS5_VABI _futimesat_nid_postfix(int fd, const char* path, const KernelTimeval* times) {
+    return futimesat_nid_postfix(fd, path, times);
 }
 
 }
