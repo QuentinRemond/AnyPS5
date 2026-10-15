@@ -45,6 +45,7 @@ extern "C" int APS5_VABI stat_nid_postfix(const char* path, FileStat* sb);
 namespace {
 
 constexpr int sceInvalidArgument = static_cast<int>(0x80020016u);
+constexpr int errnoPermissionDenied = 1;
 constexpr int errnoNoSuchProcess = 3;
 constexpr int errnoNoChild = 10;
 constexpr int errnoBadAddress = 14;
@@ -235,6 +236,38 @@ int APS5_VABI getsid_nid_postfix(int pid) {
     if (pid == 0 || pid == self) return self;
     *__error_nid_postfix() = errnoNoSuchProcess;
     return -1;
+}
+
+int APS5_VABI getpgrp_nid_postfix(void) {
+    return getpid_nid_postfix();
+}
+
+int APS5_VABI getpgid_nid_postfix(int pid) {
+    if (pid < 0) {
+        *__error_nid_postfix() = errnoInvalidArgument;
+        return -1;
+    }
+    const int self = getpid_nid_postfix();
+    if (pid == 0 || pid == self) return self;
+    *__error_nid_postfix() = errnoNoSuchProcess;
+    return -1;
+}
+
+int APS5_VABI setpgid_nid_postfix(int pid, int pgid) {
+    if (pid < 0 || pgid < 0) {
+        *__error_nid_postfix() = errnoInvalidArgument;
+        return -1;
+    }
+    const int self = getpid_nid_postfix();
+    if (pid != 0 && pid != self) {
+        *__error_nid_postfix() = errnoNoSuchProcess;
+        return -1;
+    }
+    if (pgid != 0 && pgid != self) {
+        *__error_nid_postfix() = errnoPermissionDenied;
+        return -1;
+    }
+    return 0;
 }
 
 int APS5_VABI getppid_nid_postfix(void) {
