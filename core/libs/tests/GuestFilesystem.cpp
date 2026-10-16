@@ -76,6 +76,8 @@ FileStream* APS5_VABI fopen_nid_postfix(const char*, const char*);
 FileStream* APS5_VABI freopen_nid_postfix(const char*, const char*, FileStream*);
 int* APS5_VABI __error_nid_postfix();
 int APS5_VABI pipe_nid_postfix(int*);
+int APS5_VABI posix_fallocate_nid_postfix(int, std::int64_t, std::int64_t);
+int APS5_VABI _posix_fallocate_nid_postfix(int, std::int64_t, std::int64_t);
 int APS5_VABI dup2_nid_postfix(int, int);
 std::int64_t APS5_VABI lseek_nid_postfix(int, std::int64_t, int);
 std::int64_t APS5_VABI read_nid_postfix(int, void*, std::size_t);
@@ -358,6 +360,33 @@ int main() {
         created = creat_nid_postfix("creat_probe.bin", 0644);
         Require(created >= 0 && close_nid_postfix(created) == 0 && std::filesystem::file_size("creat_probe.bin") == 0);
         Require(std::filesystem::remove("creat_probe.bin"));
+    }
+    {
+        std::filesystem::remove("fallocate_probe.bin");
+        int file = open_nid_postfix("fallocate_probe.bin", 0x0002 | 0x0200, 0644);
+        Require(file >= 0);
+        Require(posix_fallocate_nid_postfix(file, -1, 100) == 22);
+        Require(posix_fallocate_nid_postfix(file, 0, 0) == 22);
+        Require(posix_fallocate_nid_postfix(file, 0, -5) == 22);
+        Require(posix_fallocate_nid_postfix(file, std::numeric_limits<std::int64_t>::max() - 10, 20) == 27);
+        Require(posix_fallocate_nid_postfix(-1, 0, 100) == 9);
+        Require(posix_fallocate_nid_postfix(file, 0, 1024) == 0);
+        Require(std::filesystem::file_size("fallocate_probe.bin") == 1024);
+        Require(_posix_fallocate_nid_postfix(file, 1024, 1024) == 0);
+        Require(std::filesystem::file_size("fallocate_probe.bin") == 2048);
+        Require(_posix_fallocate_nid_postfix(file, 0, 512) == 0);
+        Require(std::filesystem::file_size("fallocate_probe.bin") == 2048);
+        Require(close_nid_postfix(file) == 0);
+        int ro = open_nid_postfix("fallocate_probe.bin", 0, 0);
+        Require(ro >= 0);
+        Require(posix_fallocate_nid_postfix(ro, 0, 4096) == 9);
+        Require(close_nid_postfix(ro) == 0);
+        int pipeEnds[2] = {-1, -1};
+        Require(pipe_nid_postfix(pipeEnds) == 0);
+        Require(posix_fallocate_nid_postfix(pipeEnds[0], 0, 100) != 0);
+        Require(posix_fallocate_nid_postfix(pipeEnds[1], 0, 100) != 0);
+        Require(close_nid_postfix(pipeEnds[0]) == 0 && close_nid_postfix(pipeEnds[1]) == 0);
+        Require(std::filesystem::remove("fallocate_probe.bin"));
     }
     {
         int ends[2] = {-1, -1};

@@ -759,6 +759,50 @@ int APS5_VABI sceKernelFtruncate(int d, int64_t length) {
     return ftruncate_nid_postfix(d, length) == 0 ? 0 : SceErrorFromErrno(*__error_nid_postfix());
 }
 
+extern "C" int APS5_VABI posix_fallocate_nid_postfix(int fd, std::int64_t offset, std::int64_t len) {
+    if (offset < 0 || len <= 0) return GUEST_EINVAL;
+    if (offset > std::numeric_limits<std::int64_t>::max() - len) return 27;
+#ifdef _WIN32
+    if (!DescriptorIsOpen_nid_no_patch(fd)) return 9;
+    const auto handle = reinterpret_cast<HANDLE>(WithoutParameterHandler([fd] { return ::_get_osfhandle(fd); }));
+    if (handle == INVALID_HANDLE_VALUE) return 9;
+    if (::GetFileType(handle) != FILE_TYPE_DISK) return 22;
+    LARGE_INTEGER currentSize{};
+    if (!::GetFileSizeEx(handle, &currentSize)) return 9;
+    const std::int64_t needed = offset + len;
+    if (needed > currentSize.QuadPart) {
+        LARGE_INTEGER target{};
+        target.QuadPart = needed;
+        LARGE_INTEGER previous{};
+        if (!::SetFilePointerEx(handle, target, &previous, FILE_BEGIN)) return 22;
+        const BOOL ok = ::SetEndOfFile(handle);
+        ::SetFilePointerEx(handle, previous, nullptr, FILE_BEGIN);
+        if (!ok) return 28;
+    }
+    return 0;
+#elif defined(__APPLE__)
+    fstore_t store = {F_ALLOCATECONTIG, F_PEOFPOSMODE, offset, len, 0};
+    int ret = ::fcntl(fd, F_PREALLOCATE, &store);
+    if (ret == -1) {
+        store.fst_flags = F_ALLOCATEALL;
+        ret = ::fcntl(fd, F_PREALLOCATE, &store);
+    }
+    if (ret != 0) return errno;
+    struct stat st{};
+    if (::fstat(fd, &st) == 0 && offset + len > st.st_size) {
+        if (::ftruncate(fd, static_cast<off_t>(offset + len)) != 0) return errno;
+    }
+    return 0;
+#else
+    const int result = ::posix_fallocate(fd, static_cast<off_t>(offset), static_cast<off_t>(len));
+    return result != 0 ? (SceErrorFromErrno(result) & 0xffff) : 0;
+#endif
+}
+
+extern "C" int APS5_VABI _posix_fallocate_nid_postfix(int fd, std::int64_t offset, std::int64_t len) {
+    return posix_fallocate_nid_postfix(fd, offset, len);
+}
+
 int64_t APS5_VABI lseek_nid_postfix(int d, int64_t offset, int whence) {
     if (whence < 0 || whence > 2) return PosixFailure(GUEST_EINVAL);
     return PosixResult(sceKernelLseek(d, offset, whence));
