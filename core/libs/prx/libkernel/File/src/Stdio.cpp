@@ -759,6 +759,28 @@ int APS5_VABI sceKernelFtruncate(int d, int64_t length) {
     return ftruncate_nid_postfix(d, length) == 0 ? 0 : SceErrorFromErrno(*__error_nid_postfix());
 }
 
+extern "C" int APS5_VABI posix_fadvise_nid_postfix(int fd, std::int64_t offset, std::int64_t len, int advice) {
+    if (offset < 0 || len < 0 || advice < 0 || advice > 5) return GUEST_EINVAL;
+    if (offset > std::numeric_limits<std::int64_t>::max() - len) return GUEST_EINVAL;
+#ifdef _WIN32
+    if (!DescriptorIsOpen_nid_no_patch(fd)) return 9;
+    const auto handle = reinterpret_cast<HANDLE>(WithoutParameterHandler([fd] { return ::_get_osfhandle(fd); }));
+    if (handle == INVALID_HANDLE_VALUE) return 9;
+    if (::GetFileType(handle) != FILE_TYPE_DISK) return 29;
+    return 0;
+#elif defined(__linux__)
+    const int result = ::posix_fadvise(fd, static_cast<off_t>(offset), static_cast<off_t>(len), advice);
+    return result != 0 ? (SceErrorFromErrno(result) & 0xffff) : 0;
+#else
+    if (!DescriptorIsOpen_nid_no_patch(fd)) return 9;
+    return 0;
+#endif
+}
+
+extern "C" int APS5_VABI _posix_fadvise_nid_postfix(int fd, std::int64_t offset, std::int64_t len, int advice) {
+    return posix_fadvise_nid_postfix(fd, offset, len, advice);
+}
+
 int64_t APS5_VABI lseek_nid_postfix(int d, int64_t offset, int whence) {
     if (whence < 0 || whence > 2) return PosixFailure(GUEST_EINVAL);
     return PosixResult(sceKernelLseek(d, offset, whence));
