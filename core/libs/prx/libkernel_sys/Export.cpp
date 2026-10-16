@@ -82,6 +82,7 @@ constexpr int PcAclExtended = 59;
 constexpr int PcAclPathMax = 60;
 constexpr int PcMacPresent = 63;
 constexpr int PcAclNfs4 = 64;
+constexpr int GuestAtEaccess = 0x0100;
 constexpr int GuestAtSymlinkNofollow = 0x0200;
 
 int GuestFileError(int error) {
@@ -634,6 +635,71 @@ int APS5_VABI renameat_nid_postfix(int oldfd, const char* from, int newfd, const
     RecordWrittenPath_nid_no_patch(source);
     RecordWrittenPath_nid_no_patch(destination);
     return 0;
+}
+
+int APS5_VABI faccessat_nid_postfix(int fd, const char* path, int mode, int flag) {
+    if ((flag & ~(GuestAtEaccess | GuestAtSymlinkNofollow)) != 0) return static_cast<int>(Fail(GuestEinval));
+    if (mode < 0 || (mode & ~7) != 0) return static_cast<int>(Fail(GuestEinval));
+    if (path == nullptr) return static_cast<int>(Fail(GuestEfault));
+    if (*path == '\0') return static_cast<int>(Fail(GuestEnoent));
+    if (std::strlen(path) >= GuestPathMax || HasLongComponent(path)) return static_cast<int>(Fail(GuestEnametoolong));
+
+    std::filesystem::path native;
+    if (fd == GuestAtFdcwd || *path == '/') {
+        if (const int error = ResolvePathError_nid_no_patch(path, native)) return static_cast<int>(Fail(error));
+    } else {
+        int error = 0;
+        const char* base = GetDirectoryDescriptorPath_nid_no_patch(fd, &error);
+        if (base == nullptr) return static_cast<int>(Fail(error));
+        native = std::filesystem::path(reinterpret_cast<const char8_t*>(base)) /
+                 std::filesystem::path(reinterpret_cast<const char8_t*>(path));
+    }
+
+    const bool trailingSlash = !native.has_filename() && native.has_relative_path();
+    while (!native.has_filename() && native.has_relative_path()) native = native.parent_path();
+
+    std::error_code statusError;
+    if (flag & GuestAtSymlinkNofollow) {
+        const auto symlinkStatus = std::filesystem::symlink_status(native, statusError);
+        if (symlinkStatus.type() == std::filesystem::file_type::not_found)
+            return static_cast<int>(Fail(HasNonDirectoryPrefix(native) ? GuestEnotdir : GuestEnoent));
+        if (statusError) return static_cast<int>(Fail(GuestError(statusError)));
+        if (trailingSlash) {
+            const auto targetStatus = std::filesystem::status(native, statusError);
+            if (targetStatus.type() == std::filesystem::file_type::not_found)
+                return static_cast<int>(Fail(HasNonDirectoryPrefix(native) ? GuestEnotdir : GuestEnoent));
+            if (!std::filesystem::is_directory(targetStatus)) return static_cast<int>(Fail(GuestEnotdir));
+        }
+    } else {
+        const auto status = std::filesystem::status(native, statusError);
+        if (status.type() == std::filesystem::file_type::not_found)
+            return static_cast<int>(Fail(HasNonDirectoryPrefix(native) ? GuestEnotdir : GuestEnoent));
+        if (statusError) return static_cast<int>(Fail(GuestError(statusError)));
+        if (trailingSlash && !std::filesystem::is_directory(status)) return static_cast<int>(Fail(GuestEnotdir));
+    }
+
+    if (mode == 0) return 0;
+
+#ifdef _WIN32
+    const DWORD attributes = GetFileAttributesW(native.wstring().c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES)
+        return static_cast<int>(Fail(HasNonDirectoryPrefix(native) ? GuestEnotdir : GuestEnoent));
+    if ((mode & 2) && !(attributes & FILE_ATTRIBUTE_DIRECTORY) && (attributes & FILE_ATTRIBUTE_READONLY))
+        return static_cast<int>(Fail(13));
+    return 0;
+#else
+    int hostFlags = 0;
+    if (flag & GuestAtSymlinkNofollow) hostFlags |= AT_SYMLINK_NOFOLLOW;
+    if (flag & GuestAtEaccess) hostFlags |= AT_EACCESS;
+    if (::faccessat(AT_FDCWD, native.c_str(), mode, hostFlags) != 0) {
+        return static_cast<int>(Fail(GuestFileError(errno)));
+    }
+    return 0;
+#endif
+}
+
+int APS5_VABI _faccessat_nid_postfix(int fd, const char* path, int mode, int flag) {
+    return faccessat_nid_postfix(fd, path, mode, flag);
 }
 
 }
