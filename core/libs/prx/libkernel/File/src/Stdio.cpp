@@ -474,6 +474,49 @@ extern "C" int APS5_VABI pipe_nid_postfix(int* descriptors) {
     return 0;
 }
 
+extern "C" int APS5_VABI pipe2_nid_postfix(int* descriptors, int flags) {
+    if ((flags & ~(SCE_KERNEL_O_CLOEXEC | SCE_KERNEL_O_NONBLOCK)) != 0) return PosixFailure(GUEST_EINVAL);
+    if (!descriptors) return PosixFailure(GUEST_EFAULT);
+    const GuestArena::HostWrite destination(descriptors, 2 * sizeof(int));
+    if (!destination.Open()) return PosixFailure(GUEST_EFAULT);
+    int native[2];
+#ifdef _WIN32
+    const int hostFlags = _O_BINARY | ((flags & SCE_KERNEL_O_CLOEXEC) ? _O_NOINHERIT : 0);
+    const int result = ::_pipe(native, 4096, hostFlags);
+#elif defined(__APPLE__)
+    const int result = ::pipe(native);
+    if (result == 0) {
+        if (flags & SCE_KERNEL_O_CLOEXEC) {
+            ::fcntl(native[0], F_SETFD, FD_CLOEXEC);
+            ::fcntl(native[1], F_SETFD, FD_CLOEXEC);
+        }
+        if (flags & SCE_KERNEL_O_NONBLOCK) {
+            ::fcntl(native[0], F_SETFL, ::fcntl(native[0], F_GETFL) | O_NONBLOCK);
+            ::fcntl(native[1], F_SETFL, ::fcntl(native[1], F_GETFL) | O_NONBLOCK);
+        }
+    }
+#else
+    int hostFlags = 0;
+    if (flags & SCE_KERNEL_O_CLOEXEC) hostFlags |= O_CLOEXEC;
+    if (flags & SCE_KERNEL_O_NONBLOCK) hostFlags |= O_NONBLOCK;
+    const int result = ::pipe2(native, hostFlags);
+#endif
+    if (result != 0) return PosixFailure(SceErrorFromErrno(errno) & 0xffff);
+#ifdef _WIN32
+    File::RememberDescriptor(native[0], flags & ~SCE_KERNEL_O_NONBLOCK);
+    File::RememberDescriptor(native[1], flags & ~SCE_KERNEL_O_NONBLOCK);
+    if (flags & SCE_KERNEL_O_NONBLOCK) {
+        File::Fcntl(native[0], 4, SCE_KERNEL_O_NONBLOCK);
+        File::Fcntl(native[1], 4, SCE_KERNEL_O_NONBLOCK);
+    }
+#else
+    File::RememberDescriptor(native[0], flags);
+    File::RememberDescriptor(native[1], flags);
+#endif
+    std::memcpy(descriptors, native, sizeof(native));
+    return 0;
+}
+
 static int PathError(const char* path) {
     if (path == nullptr) return GUEST_EFAULT;
     return *path == '\0' ? GUEST_ENOENT : 0;

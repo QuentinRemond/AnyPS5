@@ -76,6 +76,8 @@ FileStream* APS5_VABI fopen_nid_postfix(const char*, const char*);
 FileStream* APS5_VABI freopen_nid_postfix(const char*, const char*, FileStream*);
 int* APS5_VABI __error_nid_postfix();
 int APS5_VABI pipe_nid_postfix(int*);
+int APS5_VABI pipe2_nid_postfix(int*, int);
+int APS5_VABI fcntl_nid_postfix(int, int, ...);
 int APS5_VABI dup2_nid_postfix(int, int);
 std::int64_t APS5_VABI lseek_nid_postfix(int, std::int64_t, int);
 std::int64_t APS5_VABI read_nid_postfix(int, void*, std::size_t);
@@ -349,6 +351,36 @@ int main() {
         Require(read_nid_postfix(unseekable[0], piped, sizeof(piped)) == 4 && std::memcmp(piped, "pipe", 4) == 0);
         Require(close_nid_postfix(unseekable[0]) == 0 && close_nid_postfix(unseekable[1]) == 0);
         Require(lseek_nid_postfix(unseekable[0], 0, 1) == -1 && *__error_nid_postfix() == 9);
+    }
+    {
+        Require(pipe2_nid_postfix(descriptors, 0x12345678) == -1 && *__error_nid_postfix() == 22);
+        Require(pipe2_nid_postfix(nullptr, 0x12345678) == -1 && *__error_nid_postfix() == 22);
+        Require(pipe2_nid_postfix(nullptr, 0) == -1 && *__error_nid_postfix() == 14);
+        Require(pipe2_nid_postfix(nullptr, 0x00100000) == -1 && *__error_nid_postfix() == 14);
+        Require(pipe2_nid_postfix(nullptr, 0x00000004) == -1 && *__error_nid_postfix() == 14);
+        int p2[2] = {-1, -1};
+        Require(pipe2_nid_postfix(p2, 0) == 0 && p2[0] >= 0 && p2[1] >= 0);
+        Require(fcntl_nid_postfix(p2[0], 1) == 0 && fcntl_nid_postfix(p2[1], 1) == 0);
+        Require(write_nid_postfix(p2[1], "pipe2", 5) == 5);
+        char p2Buf[8]{};
+        Require(read_nid_postfix(p2[0], p2Buf, sizeof(p2Buf)) == 5 && std::memcmp(p2Buf, "pipe2", 5) == 0);
+        Require(close_nid_postfix(p2[0]) == 0 && close_nid_postfix(p2[1]) == 0);
+        Require(pipe2_nid_postfix(p2, 0x00100000) == 0);
+        Require(fcntl_nid_postfix(p2[0], 1) == 1 && fcntl_nid_postfix(p2[1], 1) == 1);
+        Require(close_nid_postfix(p2[0]) == 0 && close_nid_postfix(p2[1]) == 0);
+        Require(pipe2_nid_postfix(p2, 0x00000004) == 0);
+        Require((fcntl_nid_postfix(p2[0], 3) & 4) == 4);
+        Require((fcntl_nid_postfix(p2[1], 3) & 4) == 4);
+        Require(read_nid_postfix(p2[0], p2Buf, sizeof(p2Buf)) == -1 && *__error_nid_postfix() == 35);
+        Require(write_nid_postfix(p2[1], "nonblock", 8) == 8);
+        Require(read_nid_postfix(p2[0], p2Buf, sizeof(p2Buf)) == 8 && std::memcmp(p2Buf, "nonblock", 8) == 0);
+        Require(close_nid_postfix(p2[0]) == 0 && close_nid_postfix(p2[1]) == 0);
+        Require(pipe2_nid_postfix(p2, 0x00100000 | 0x00000004) == 0);
+        Require(fcntl_nid_postfix(p2[0], 1) == 1 && fcntl_nid_postfix(p2[1], 1) == 1);
+        Require((fcntl_nid_postfix(p2[0], 3) & 4) == 4);
+        Require((fcntl_nid_postfix(p2[1], 3) & 4) == 4);
+        Require(read_nid_postfix(p2[0], p2Buf, sizeof(p2Buf)) == -1 && *__error_nid_postfix() == 35);
+        Require(close_nid_postfix(p2[0]) == 0 && close_nid_postfix(p2[1]) == 0);
     }
     {
         std::filesystem::remove("creat_probe.bin");
