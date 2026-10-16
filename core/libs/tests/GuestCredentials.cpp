@@ -9,6 +9,8 @@ int APS5_VABI seteuid_nid_postfix(std::uint32_t);
 int APS5_VABI setegid_nid_postfix(std::uint32_t);
 int APS5_VABI setuid_nid_postfix(std::uint32_t);
 int APS5_VABI setreuid_nid_postfix(std::uint32_t, std::uint32_t);
+int APS5_VABI getresuid_nid_postfix(std::uint32_t*, std::uint32_t*, std::uint32_t*);
+int APS5_VABI setresuid_nid_postfix(std::uint32_t, std::uint32_t, std::uint32_t);
 int APS5_VABI setregid_nid_postfix(std::uint32_t, std::uint32_t);
 int APS5_VABI setgroups_nid_postfix(int, const std::uint32_t*);
 int APS5_VABI getgroups_nid_postfix(int, std::uint32_t*);
@@ -21,6 +23,7 @@ int* APS5_VABI __error_nid_postfix();
 static void Require(bool value) { if (!value) std::abort(); }
 using SetId = int (APS5_VABI *)(std::uint32_t);
 using SetReId = int (APS5_VABI *)(std::uint32_t, std::uint32_t);
+using SetResId = int (APS5_VABI *)(std::uint32_t, std::uint32_t, std::uint32_t);
 
 static bool Throws(SetId function, std::uint32_t id) {
     try {
@@ -34,6 +37,15 @@ static bool Throws(SetId function, std::uint32_t id) {
 static bool ThrowsRe(SetReId function, std::uint32_t r, std::uint32_t e) {
     try {
         function(r, e);
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+    return false;
+}
+
+static bool ThrowsRes(SetResId function, std::uint32_t r, std::uint32_t e, std::uint32_t s) {
+    try {
+        function(r, e, s);
     } catch (const std::runtime_error&) {
         return true;
     }
@@ -67,6 +79,26 @@ int main() {
     Require(setreuid_nid_postfix(0, 0) == 0);
     Require(ThrowsRe(setreuid_nid_postfix, 1000, 0));
     Require(ThrowsRe(setreuid_nid_postfix, 0, 1000));
+
+    std::uint32_t ruid = 99, euid = 99, suid = 99;
+    *__error_nid_postfix() = 13;
+    Require(getresuid_nid_postfix(&ruid, &euid, &suid) == 0 && ruid == 0 && euid == 0 && suid == 0 && *__error_nid_postfix() == 13);
+    ruid = 99;
+    Require(getresuid_nid_postfix(&ruid, nullptr, nullptr) == 0 && ruid == 0);
+    euid = 99;
+    Require(getresuid_nid_postfix(nullptr, &euid, nullptr) == 0 && euid == 0);
+    suid = 99;
+    Require(getresuid_nid_postfix(nullptr, nullptr, &suid) == 0 && suid == 0);
+    Require(getresuid_nid_postfix(nullptr, nullptr, nullptr) == 0);
+
+    Require(setresuid_nid_postfix(Unchanged, Unchanged, Unchanged) == 0);
+    Require(setresuid_nid_postfix(0, Unchanged, Unchanged) == 0);
+    Require(setresuid_nid_postfix(Unchanged, 0, Unchanged) == 0);
+    Require(setresuid_nid_postfix(Unchanged, Unchanged, 0) == 0);
+    Require(setresuid_nid_postfix(0, 0, 0) == 0);
+    Require(ThrowsRes(setresuid_nid_postfix, 1000, 0, 0));
+    Require(ThrowsRes(setresuid_nid_postfix, 0, 1000, 0));
+    Require(ThrowsRes(setresuid_nid_postfix, 0, 0, 1000));
 
     Require(setregid_nid_postfix(Unchanged, Unchanged) == 0);
     Require(setregid_nid_postfix(0, Unchanged) == 0);

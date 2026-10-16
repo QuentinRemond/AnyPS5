@@ -650,6 +650,27 @@ int APS5_VABI setreuid_nid_postfix(std::uint32_t ruid, std::uint32_t euid) {
     return 0;
 }
 
+int APS5_VABI getresuid_nid_postfix(std::uint32_t* ruid, std::uint32_t* euid, std::uint32_t* suid) {
+    if (ruid != nullptr)
+        *ruid = 0;
+    if (euid != nullptr)
+        *euid = 0;
+    if (suid != nullptr)
+        *suid = 0;
+    return 0;
+}
+
+int APS5_VABI setresuid_nid_postfix(std::uint32_t ruid, std::uint32_t euid, std::uint32_t suid) {
+    constexpr std::uint32_t unchanged = 0xffffffffu;
+    if (ruid != 0 && ruid != unchanged)
+        throw std::runtime_error("setresuid: unsupported real user id " + std::to_string(ruid));
+    if (euid != 0 && euid != unchanged)
+        throw std::runtime_error("setresuid: unsupported effective user id " + std::to_string(euid));
+    if (suid != 0 && suid != unchanged)
+        throw std::runtime_error("setresuid: unsupported saved user id " + std::to_string(suid));
+    return 0;
+}
+
 int APS5_VABI setregid_nid_postfix(std::uint32_t rgid, std::uint32_t egid) {
     constexpr std::uint32_t unchanged = 0xffffffffu;
     if (rgid != 0 && rgid != unchanged)
