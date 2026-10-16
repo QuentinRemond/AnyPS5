@@ -31,6 +31,8 @@ int APS5_VABI sceKernelFchmod(int, unsigned short);
 int APS5_VABI fchmod_nid_postfix(int, int);
 int APS5_VABI chmod_nid_postfix(const char*, int);
 int APS5_VABI chflags_nid_postfix(const char*, std::uint64_t);
+int APS5_VABI lchflags_nid_postfix(const char*, std::uint64_t);
+int APS5_VABI fchflags_nid_postfix(int, std::uint64_t);
 int APS5_VABI futimes_nid_postfix(int, const KernelTimeval*);
 int APS5_VABI sceKernelFutimes(int, const KernelTimeval*);
 int APS5_VABI socket_nid_postfix(int, int, int);
@@ -105,6 +107,24 @@ static void Check(bool value, int line) {
 static bool ChflagsThrows(const std::filesystem::path& path, std::uint64_t flags, const char* names) {
     try {
         chflags_nid_postfix(path.string().c_str(), flags);
+    } catch (const std::runtime_error& error) {
+        return std::strstr(error.what(), names) != nullptr;
+    }
+    return false;
+}
+
+static bool LchflagsThrows(const std::filesystem::path& path, std::uint64_t flags, const char* names) {
+    try {
+        lchflags_nid_postfix(path.string().c_str(), flags);
+    } catch (const std::runtime_error& error) {
+        return std::strstr(error.what(), names) != nullptr;
+    }
+    return false;
+}
+
+static bool FchflagsThrows(int fd, std::uint64_t flags, const char* names) {
+    try {
+        fchflags_nid_postfix(fd, flags);
     } catch (const std::runtime_error& error) {
         return std::strstr(error.what(), names) != nullptr;
     }
@@ -447,6 +467,32 @@ int main() {
     Require(chflags_nid_postfix(file.string().c_str(), 0x200000) == -1 && *__error_nid_postfix() == 1);
     Require(ChflagsThrows(file, 0x2, "UF_IMMUTABLE"));
     Require(ChflagsThrows(file, 0x1000 | 0x40000, "UF_READONLY|SF_APPEND"));
+    Require(lchflags_nid_postfix(nullptr, 0) == -1 && *__error_nid_postfix() == 14);
+    Require(lchflags_nid_postfix("", 0) == -1 && *__error_nid_postfix() == 2);
+    Require(lchflags_nid_postfix((root / "missing").string().c_str(), 0) == -1 && *__error_nid_postfix() == 2);
+    Require(lchflags_nid_postfix((root / "missing").string().c_str(), ~0ULL) == -1 && *__error_nid_postfix() == 2);
+    Require(lchflags_nid_postfix((file / "child").string().c_str(), 0) == -1 && *__error_nid_postfix() == 20);
+    Require(lchflags_nid_postfix((file.string() + "/").c_str(), 0) == -1 && *__error_nid_postfix() == 20);
+    Require(lchflags_nid_postfix(file.string().c_str(), 0) == 0);
+    Require(lchflags_nid_postfix(root.string().c_str(), 0) == 0);
+    Require(lchflags_nid_postfix(file.string().c_str(), 0x20) == -1 && *__error_nid_postfix() == 45);
+    Require(lchflags_nid_postfix(file.string().c_str(), 1ULL << 32) == -1 && *__error_nid_postfix() == 45);
+    Require(lchflags_nid_postfix(file.string().c_str(), ~0ULL) == -1 && *__error_nid_postfix() == 45);
+    Require(lchflags_nid_postfix(file.string().c_str(), 0x200000) == -1 && *__error_nid_postfix() == 1);
+    Require(LchflagsThrows(file, 0x2, "UF_IMMUTABLE"));
+    Require(LchflagsThrows(file, 0x1000 | 0x40000, "UF_READONLY|SF_APPEND"));
+    const int flagsFd = open_nid_postfix(file.string().c_str(), 0, 0);
+    Require(flagsFd >= 0);
+    Require(fchflags_nid_postfix(flagsFd, 0) == 0);
+    Require(fchflags_nid_postfix(flagsFd, 0x20) == -1 && *__error_nid_postfix() == 45);
+    Require(fchflags_nid_postfix(flagsFd, 1ULL << 32) == -1 && *__error_nid_postfix() == 45);
+    Require(fchflags_nid_postfix(flagsFd, ~0ULL) == -1 && *__error_nid_postfix() == 45);
+    Require(fchflags_nid_postfix(flagsFd, 0x200000) == -1 && *__error_nid_postfix() == 1);
+    Require(FchflagsThrows(flagsFd, 0x2, "UF_IMMUTABLE"));
+    Require(FchflagsThrows(flagsFd, 0x1000 | 0x40000, "UF_READONLY|SF_APPEND"));
+    Require(close_nid_postfix(flagsFd) == 0);
+    Require(fchflags_nid_postfix(flagsFd, 0) == -1 && *__error_nid_postfix() == 9);
+    Require(fchflags_nid_postfix(-1, 0) == -1 && *__error_nid_postfix() == 9);
     const auto held = root / "held.txt";
     const auto heldName = held.string();
     { std::ofstream stream(held); stream << "held"; }
@@ -598,6 +644,7 @@ int main() {
     Require(socket >= 0);
     Require(sceKernelFchmod(socket, 0600) == static_cast<int>(0x80020016u));
     Require(fchmod_nid_postfix(socket, 0600) == -1 && *__error_nid_postfix() == 22);
+    Require(fchflags_nid_postfix(socket, 0) == -1 && *__error_nid_postfix() == 22);
     Require(futimes_nid_postfix(socket, nullptr) == -1 && *__error_nid_postfix() == 22);
     Require(fdatasync_nid_postfix(socket) == -1 && *__error_nid_postfix() == 22);
     Require(sceKernelFdatasync(socket) == static_cast<int>(0x80020016u));
@@ -605,6 +652,7 @@ int main() {
     Require(sceKernelFsync(socket) == static_cast<int>(0x80020016u));
     Require(close_nid_postfix(socket) == 0);
     Require(fchmod_nid_postfix(socket, 0600) == -1 && *__error_nid_postfix() == 9);
+    Require(fchflags_nid_postfix(socket, 0) == -1 && *__error_nid_postfix() == 9);
     Require(futimes_nid_postfix(socket, nullptr) == -1 && *__error_nid_postfix() == 9);
     Require(fdatasync_nid_postfix(socket) == -1 && *__error_nid_postfix() == 9);
     Require(sceKernelFdatasync(socket) == static_cast<int>(0x80020009u));
@@ -665,6 +713,9 @@ int main() {
     const auto dangling = root / "dangling";
     std::filesystem::create_symlink("missing.txt", dangling);
     Require(lstat_nid_postfix(dangling.string().c_str(), &linkStatus) == 0 && (linkStatus.st_mode & 0170000) == 0120000);
+    Require(lchflags_nid_postfix(link.string().c_str(), 0) == 0);
+    Require(lchflags_nid_postfix(dangling.string().c_str(), 0) == 0);
+    Require(chflags_nid_postfix(dangling.string().c_str(), 0) == -1 && *__error_nid_postfix() == 2);
     constexpr int noFollow = 0x100;
     Require(sceKernelOpen(link.string().c_str(), noFollow, 0) == static_cast<int>(0x8002001Fu));
     Require(open_nid_postfix(link.string().c_str(), noFollow, 0) == -1 && *__error_nid_postfix() == 31);
