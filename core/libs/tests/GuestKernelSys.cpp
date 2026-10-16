@@ -43,6 +43,8 @@ std::int64_t APS5_VABI readlinkat_nid_postfix(int, const char*, char*, std::size
 int APS5_VABI mkdirat_nid_postfix(int, const char*, std::uint16_t);
 int APS5_VABI renameat_nid_postfix(int, const char*, int, const char*);
 int APS5_VABI fchmodat_nid_postfix(int, const char*, int, int);
+int APS5_VABI fchownat_nid_postfix(int, const char*, std::uint32_t, std::uint32_t, int);
+int APS5_VABI _fchownat_nid_postfix(int, const char*, std::uint32_t, std::uint32_t, int);
 std::int64_t APS5_VABI sceKernelRead(int, void*, std::size_t);
 std::uint16_t APS5_VABI umask_nid_postfix(std::uint16_t);
 int* APS5_VABI __error_nid_postfix();
@@ -463,6 +465,32 @@ int main() {
     Require(symlink_nid_postfix("loop", (root / "loop").string().c_str()) == 0);
     Require(fchmodat_nid_postfix(base, "loop/x", 0600, 0) == -1 && Error() == 62);
     Require(fchmodat_nid_postfix(base, longName.c_str(), 0600, 0) == -1 && Error() == 63);
+#endif
+    Require(fchownat_nid_postfix(base, "file.txt", 0, 0, 0x0200) == 0);
+    Require(_fchownat_nid_postfix(base, "file.txt", 0xffffffffu, 0xffffffffu, 0x0200) == 0);
+    Require(fchownat_nid_postfix(-100, (root / "file.txt").string().c_str(), 0, 0xffffffffu, 0) == 0);
+    Require(fchownat_nid_postfix(base, "missing.bin", 0, 0, 0) == -1 && Error() == 2);
+    Require(fchownat_nid_postfix(base, nullptr, 0, 0, 0) == -1 && Error() == 14);
+    Require(fchownat_nid_postfix(base, "", 0, 0, 0) == -1 && Error() == 2);
+    Require(fchownat_nid_postfix(base, "file.txt", 0, 0, 0x4000) == -1 && Error() == 22);
+    Require(fchownat_nid_postfix(-1, "file.txt", 0, 0, 0) == -1 && Error() == 9);
+    bool threwOwner = false;
+    try {
+        fchownat_nid_postfix(base, "file.txt", 1000, 0, 0);
+    } catch (const std::runtime_error&) {
+        threwOwner = true;
+    }
+    Require(threwOwner);
+    bool threwGroup = false;
+    try {
+        fchownat_nid_postfix(base, "file.txt", 0, 1000, 0);
+    } catch (const std::runtime_error&) {
+        threwGroup = true;
+    }
+    Require(threwGroup);
+#ifndef _WIN32
+    Require(fchownat_nid_postfix(base, "loop/x", 0, 0, 0) == -1 && Error() == 62);
+    Require(fchownat_nid_postfix(base, longName.c_str(), 0, 0, 0) == -1 && Error() == 63);
 #endif
     Require(sceKernelClose(base) == 0);
 #ifndef _WIN32

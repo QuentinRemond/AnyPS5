@@ -504,6 +504,44 @@ int APS5_VABI fchmodat_nid_postfix(int fd, const char* path, int mode, int flag)
     return 0;
 }
 
+int APS5_VABI fchownat_nid_postfix(int fd, const char* path, std::uint32_t owner, std::uint32_t group, int flag) {
+    if (flag != 0 && flag != GuestAtSymlinkNofollow) return static_cast<int>(Fail(GuestEinval));
+    if (path == nullptr) return static_cast<int>(Fail(GuestEfault));
+    if (*path == '\0') return static_cast<int>(Fail(GuestEnoent));
+    if (std::strlen(path) >= GuestPathMax || HasLongComponent(path)) return static_cast<int>(Fail(GuestEnametoolong));
+    constexpr std::uint32_t unchanged = 0xffffffffu;
+    if (owner != 0 && owner != unchanged)
+        throw std::runtime_error("fchownat: unsupported owner " + std::to_string(owner));
+    if (group != 0 && group != unchanged)
+        throw std::runtime_error("fchownat: unsupported group " + std::to_string(group));
+    std::filesystem::path native;
+    if (fd == GuestAtFdcwd || *path == '/') {
+        if (const int error = ResolvePathError_nid_no_patch(path, native)) return static_cast<int>(Fail(error));
+    } else {
+        int error = 0;
+        const char* base = GetDirectoryDescriptorPath_nid_no_patch(fd, &error);
+        if (base == nullptr) return static_cast<int>(Fail(error));
+        native = std::filesystem::path(reinterpret_cast<const char8_t*>(base)) / std::filesystem::path(reinterpret_cast<const char8_t*>(path));
+    }
+    std::error_code statusError;
+    const auto status = (flag == GuestAtSymlinkNofollow) ? std::filesystem::symlink_status(native, statusError)
+                                                         : std::filesystem::status(native, statusError);
+    if (statusError) {
+        if (HasNonDirectoryPrefix(native)) return static_cast<int>(Fail(GuestEnotdir));
+        return static_cast<int>(Fail(GuestError(statusError)));
+    }
+    if (!std::filesystem::exists(status)) {
+        if (HasNonDirectoryPrefix(native)) return static_cast<int>(Fail(GuestEnotdir));
+        return static_cast<int>(Fail(GuestEnoent));
+    }
+    RecordWrittenPath_nid_no_patch(native);
+    return 0;
+}
+
+int APS5_VABI _fchownat_nid_postfix(int fd, const char* path, std::uint32_t owner, std::uint32_t group, int flag) {
+    return fchownat_nid_postfix(fd, path, owner, group, flag);
+}
+
 int APS5_VABI unlink_nid_postfix(const char* path);
 int APS5_VABI rmdir_nid_postfix(const char* path);
 
