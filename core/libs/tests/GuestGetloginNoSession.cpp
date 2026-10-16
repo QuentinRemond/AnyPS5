@@ -12,6 +12,11 @@ extern "C" int APS5_VABI getlogin_r_nid_postfix(char*, int);
 
 static int loginError = ENXIO;
 
+extern "C" int* APS5_VABI __error_nid_postfix() {
+    static int guestError = 0;
+    return &guestError;
+}
+
 extern "C" int getlogin_r(char* output, std::size_t size) {
     if (loginError != 0) return loginError;
     constexpr char sessionName[] = "anyps5-other-login-session";

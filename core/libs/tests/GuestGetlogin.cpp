@@ -17,11 +17,16 @@
 #endif
 
 extern "C" int APS5_VABI getlogin_r_nid_postfix(char*, int);
+extern "C" int APS5_VABI _getlogin_r_nid_postfix(char*, int);
+extern "C" char* APS5_VABI getlogin_nid_postfix(void);
+extern "C" char* APS5_VABI _getlogin_nid_postfix(void);
+extern "C" int APS5_VABI setlogin_nid_postfix(const char*);
+extern "C" int APS5_VABI _setlogin_nid_postfix(const char*);
 extern "C" int* APS5_VABI __error_nid_postfix();
 
 static void Check(bool condition, int line) {
     if (!condition) {
-        std::fprintf(stderr, "getlogin_r check failed at line %d\n", line);
+        std::fprintf(stderr, "getlogin check failed at line %d\n", line);
         std::abort();
     }
 }
@@ -54,6 +59,8 @@ static void RequireLogin(const std::string& expected) {
     const auto saved = output;
     Require(getlogin_r_nid_postfix(output.data() + 1, static_cast<int>(expected.size())) == 34);
     Require(*__error_nid_postfix() == 12345 && output == saved);
+    Require(_getlogin_r_nid_postfix(output.data() + 1, static_cast<int>(expected.size() + 1)) == 0);
+    Require(std::memcmp(output.data() + 1, expected.c_str(), expected.size() + 1) == 0);
 }
 
 int main() {
@@ -64,18 +71,48 @@ int main() {
         *__error_nid_postfix() = 12345;
         Require(getlogin_r_nid_postfix(output.data(), size) == 34);
         Require(*__error_nid_postfix() == 12345 && output == untouched);
+        Require(_getlogin_r_nid_postfix(output.data(), size) == 34);
     }
     Require(getlogin_r_nid_postfix(nullptr, 1) == 14);
+    Require(_getlogin_r_nid_postfix(nullptr, 1) == 14);
     Require(*__error_nid_postfix() == 12345);
     const std::string expected = HostLogin();
     *__error_nid_postfix() = 12345;
     Require(getlogin_r_nid_postfix(output.data(), static_cast<int>(output.size())) == 0);
     Require(*__error_nid_postfix() == 12345);
     Require(std::strcmp(output.data(), expected.c_str()) == 0);
+    char* login = getlogin_nid_postfix();
+    Require(login != nullptr && std::strcmp(login, expected.c_str()) == 0);
+    Require(*__error_nid_postfix() == 12345);
+    char* loginAlias = _getlogin_nid_postfix();
+    Require(loginAlias != nullptr && std::strcmp(loginAlias, expected.c_str()) == 0);
+    Require(*__error_nid_postfix() == 12345);
     RequireLogin(expected);
+    Require(setlogin_nid_postfix(nullptr) == -1 && *__error_nid_postfix() == 14);
+    Require(_setlogin_nid_postfix(nullptr) == -1 && *__error_nid_postfix() == 14);
+    std::string tooLong(33, 'a');
+    Require(setlogin_nid_postfix(tooLong.c_str()) == -1 && *__error_nid_postfix() == 22);
+    Require(_setlogin_nid_postfix(tooLong.c_str()) == -1 && *__error_nid_postfix() == 22);
+    const char custom[] = "guestuser";
+    Require(setlogin_nid_postfix(custom) == 0);
+    Require(std::strcmp(getlogin_nid_postfix(), custom) == 0);
+    Require(std::strcmp(_getlogin_nid_postfix(), custom) == 0);
+    Require(getlogin_r_nid_postfix(output.data(), static_cast<int>(output.size())) == 0);
+    Require(std::strcmp(output.data(), custom) == 0);
+    Require(_getlogin_r_nid_postfix(output.data(), static_cast<int>(output.size())) == 0);
+    Require(std::strcmp(output.data(), custom) == 0);
+    Require(getlogin_r_nid_postfix(output.data(), static_cast<int>(std::strlen(custom))) == 34);
+    Require(_getlogin_r_nid_postfix(output.data(), static_cast<int>(std::strlen(custom))) == 34);
+    const char another[] = "ps5";
+    Require(_setlogin_nid_postfix(another) == 0);
+    Require(std::strcmp(getlogin_nid_postfix(), another) == 0);
+    Require(std::strcmp(_getlogin_nid_postfix(), another) == 0);
     std::array<std::thread, 4> readers;
     for (auto& reader : readers) reader = std::thread([&] {
-        for (int i = 0; i != 20; ++i) RequireLogin(expected);
+        for (int i = 0; i != 20; ++i) {
+            Require(std::strcmp(getlogin_nid_postfix(), another) == 0);
+            Require(std::strcmp(_getlogin_nid_postfix(), another) == 0);
+        }
     });
     for (auto& reader : readers) reader.join();
 }
