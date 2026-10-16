@@ -30,6 +30,11 @@ int APS5_VABI sceKernelChmod_nid_postfix(const char*, unsigned short);
 int APS5_VABI sceKernelFchmod(int, unsigned short);
 int APS5_VABI fchmod_nid_postfix(int, int);
 int APS5_VABI chmod_nid_postfix(const char*, int);
+int APS5_VABI chown_nid_postfix(const char*, std::uint32_t, std::uint32_t);
+int APS5_VABI lchown_nid_postfix(const char*, std::uint32_t, std::uint32_t);
+int APS5_VABI fchown_nid_postfix(int, std::uint32_t, std::uint32_t);
+int APS5_VABI _chown_nid_postfix(const char*, std::uint32_t, std::uint32_t);
+int APS5_VABI _fchown_nid_postfix(int, std::uint32_t, std::uint32_t);
 int APS5_VABI chflags_nid_postfix(const char*, std::uint64_t);
 int APS5_VABI futimes_nid_postfix(int, const KernelTimeval*);
 int APS5_VABI sceKernelFutimes(int, const KernelTimeval*);
@@ -107,6 +112,33 @@ static bool ChflagsThrows(const std::filesystem::path& path, std::uint64_t flags
         chflags_nid_postfix(path.string().c_str(), flags);
     } catch (const std::runtime_error& error) {
         return std::strstr(error.what(), names) != nullptr;
+    }
+    return false;
+}
+
+static bool ChownThrows(const std::filesystem::path& path, std::uint32_t owner, std::uint32_t group) {
+    try {
+        chown_nid_postfix(path.string().c_str(), owner, group);
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+    return false;
+}
+
+static bool LchownThrows(const std::filesystem::path& path, std::uint32_t owner, std::uint32_t group) {
+    try {
+        lchown_nid_postfix(path.string().c_str(), owner, group);
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+    return false;
+}
+
+static bool FchownThrows(int fd, std::uint32_t owner, std::uint32_t group) {
+    try {
+        fchown_nid_postfix(fd, owner, group);
+    } catch (const std::runtime_error&) {
+        return true;
     }
     return false;
 }
@@ -447,6 +479,37 @@ int main() {
     Require(chflags_nid_postfix(file.string().c_str(), 0x200000) == -1 && *__error_nid_postfix() == 1);
     Require(ChflagsThrows(file, 0x2, "UF_IMMUTABLE"));
     Require(ChflagsThrows(file, 0x1000 | 0x40000, "UF_READONLY|SF_APPEND"));
+    Require(chown_nid_postfix(nullptr, 0, 0) == -1 && *__error_nid_postfix() == 14);
+    Require(chown_nid_postfix("", 0, 0) == -1 && *__error_nid_postfix() == 2);
+    Require(chown_nid_postfix((root / "missing").string().c_str(), 0, 0) == -1 && *__error_nid_postfix() == 2);
+    Require(chown_nid_postfix((file / "child").string().c_str(), 0, 0) == -1 && *__error_nid_postfix() == 20);
+    Require(chown_nid_postfix((file.string() + "/").c_str(), 0, 0) == -1 && *__error_nid_postfix() == 20);
+    Require(chown_nid_postfix(file.string().c_str(), 0, 0) == 0);
+    Require(chown_nid_postfix(file.string().c_str(), 0xffffffffu, 0xffffffffu) == 0);
+    Require(chown_nid_postfix(file.string().c_str(), 0, 0xffffffffu) == 0);
+    Require(chown_nid_postfix(file.string().c_str(), 0xffffffffu, 0) == 0);
+    Require(_chown_nid_postfix(file.string().c_str(), 0, 0) == 0);
+    Require(ChownThrows(file, 1000, 0));
+    Require(ChownThrows(file, 0, 1000));
+    Require(lchown_nid_postfix(nullptr, 0, 0) == -1 && *__error_nid_postfix() == 14);
+    Require(lchown_nid_postfix("", 0, 0) == -1 && *__error_nid_postfix() == 2);
+    Require(lchown_nid_postfix((root / "missing").string().c_str(), 0, 0) == -1 && *__error_nid_postfix() == 2);
+    Require(lchown_nid_postfix((file / "child").string().c_str(), 0, 0) == -1 && *__error_nid_postfix() == 20);
+    Require(lchown_nid_postfix((file.string() + "/").c_str(), 0, 0) == -1 && *__error_nid_postfix() == 20);
+    Require(lchown_nid_postfix(file.string().c_str(), 0, 0) == 0);
+    Require(lchown_nid_postfix(file.string().c_str(), 0xffffffffu, 0xffffffffu) == 0);
+    Require(LchownThrows(file, 1000, 0));
+    Require(LchownThrows(file, 0, 1000));
+    const int chownFd = open_nid_postfix(file.string().c_str(), 0, 0);
+    Require(chownFd >= 0);
+    Require(fchown_nid_postfix(chownFd, 0, 0) == 0);
+    Require(fchown_nid_postfix(chownFd, 0xffffffffu, 0xffffffffu) == 0);
+    Require(_fchown_nid_postfix(chownFd, 0, 0) == 0);
+    Require(FchownThrows(chownFd, 1000, 0));
+    Require(FchownThrows(chownFd, 0, 1000));
+    Require(close_nid_postfix(chownFd) == 0);
+    Require(fchown_nid_postfix(chownFd, 0, 0) == -1 && *__error_nid_postfix() == 9);
+    Require(fchown_nid_postfix(-1, 0, 0) == -1 && *__error_nid_postfix() == 9);
     const auto held = root / "held.txt";
     const auto heldName = held.string();
     { std::ofstream stream(held); stream << "held"; }
@@ -598,6 +661,8 @@ int main() {
     Require(socket >= 0);
     Require(sceKernelFchmod(socket, 0600) == static_cast<int>(0x80020016u));
     Require(fchmod_nid_postfix(socket, 0600) == -1 && *__error_nid_postfix() == 22);
+    Require(fchown_nid_postfix(socket, 0, 0) == -1 && *__error_nid_postfix() == 22);
+    Require(_fchown_nid_postfix(socket, 0, 0) == -1 && *__error_nid_postfix() == 22);
     Require(futimes_nid_postfix(socket, nullptr) == -1 && *__error_nid_postfix() == 22);
     Require(fdatasync_nid_postfix(socket) == -1 && *__error_nid_postfix() == 22);
     Require(sceKernelFdatasync(socket) == static_cast<int>(0x80020016u));
@@ -605,6 +670,8 @@ int main() {
     Require(sceKernelFsync(socket) == static_cast<int>(0x80020016u));
     Require(close_nid_postfix(socket) == 0);
     Require(fchmod_nid_postfix(socket, 0600) == -1 && *__error_nid_postfix() == 9);
+    Require(fchown_nid_postfix(socket, 0, 0) == -1 && *__error_nid_postfix() == 9);
+    Require(_fchown_nid_postfix(socket, 0, 0) == -1 && *__error_nid_postfix() == 9);
     Require(futimes_nid_postfix(socket, nullptr) == -1 && *__error_nid_postfix() == 9);
     Require(fdatasync_nid_postfix(socket) == -1 && *__error_nid_postfix() == 9);
     Require(sceKernelFdatasync(socket) == static_cast<int>(0x80020009u));
@@ -665,6 +732,10 @@ int main() {
     const auto dangling = root / "dangling";
     std::filesystem::create_symlink("missing.txt", dangling);
     Require(lstat_nid_postfix(dangling.string().c_str(), &linkStatus) == 0 && (linkStatus.st_mode & 0170000) == 0120000);
+    Require(lchown_nid_postfix(link.string().c_str(), 0, 0) == 0);
+    Require(lchown_nid_postfix(dangling.string().c_str(), 0, 0) == 0);
+    Require(chown_nid_postfix(dangling.string().c_str(), 0, 0) == -1 && *__error_nid_postfix() == 2);
+    Require(_chown_nid_postfix(dangling.string().c_str(), 0, 0) == -1 && *__error_nid_postfix() == 2);
     constexpr int noFollow = 0x100;
     Require(sceKernelOpen(link.string().c_str(), noFollow, 0) == static_cast<int>(0x8002001Fu));
     Require(open_nid_postfix(link.string().c_str(), noFollow, 0) == -1 && *__error_nid_postfix() == 31);

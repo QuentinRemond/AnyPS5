@@ -522,9 +522,10 @@ int File::DuplicateFrom(int fd, int start) {
 #endif
 }
 
-static int LookupError(const std::filesystem::path& native) {
+static int LookupError(const std::filesystem::path& native, bool followSymlinks = true) {
     std::error_code error;
-    const auto status = std::filesystem::status(native, error);
+    const auto status = followSymlinks ? std::filesystem::status(native, error)
+                                       : std::filesystem::symlink_status(native, error);
     if (std::filesystem::exists(status)) return native.has_filename() || std::filesystem::is_directory(status) ? 0 : GUEST_ENOTDIR;
     if (status.type() != std::filesystem::file_type::not_found) return SceErrorFromErrno(error.default_error_condition().value()) & 0xffff;
     const bool fileWithSeparator = !native.has_filename() && std::filesystem::exists(WithoutTrailingSeparator(native), error);
@@ -569,6 +570,43 @@ int APS5_VABI chflags_nid_postfix(const char* path, std::uint64_t flags) {
     if (flags != 0)
         throw std::runtime_error("chflags: setting " + FileFlagNames(flags) + " on " + path + " is not supported, the host keeps no BSD file flags");
     return 0;
+}
+
+int APS5_VABI chown_nid_postfix(const char* path, std::uint32_t owner, std::uint32_t group) {
+    if (const int error = PathError(path)) return PosixFailure(error);
+    if (const int error = LookupError(ResolvePath_nid_no_patch(path))) return PosixFailure(error);
+    if ((owner != 0 && owner != static_cast<std::uint32_t>(-1)) ||
+        (group != 0 && group != static_cast<std::uint32_t>(-1)))
+        throw std::runtime_error("chown: setting owner " + std::to_string(owner) + " or group " + std::to_string(group) + " on " + path + " is not supported, the guest process runs as root");
+    return 0;
+}
+
+int APS5_VABI lchown_nid_postfix(const char* path, std::uint32_t owner, std::uint32_t group) {
+    if (const int error = PathError(path)) return PosixFailure(error);
+    if (const int error = LookupError(ResolvePath_nid_no_patch(path), false)) return PosixFailure(error);
+    if ((owner != 0 && owner != static_cast<std::uint32_t>(-1)) ||
+        (group != 0 && group != static_cast<std::uint32_t>(-1)))
+        throw std::runtime_error("lchown: setting owner " + std::to_string(owner) + " or group " + std::to_string(group) + " on " + path + " is not supported, the guest process runs as root");
+    return 0;
+}
+
+int APS5_VABI fchown_nid_postfix(int d, std::uint32_t owner, std::uint32_t group) {
+    if (d < 0) return PosixFailure(GUEST_EBADF);
+    if (File::IsHostStream(d)) return PosixFailure(GUEST_EBADF);
+    if (GuestSockets::IsOpen(d)) return PosixFailure(GUEST_EINVAL);
+    if (!DescriptorIsOpen_nid_no_patch(d)) return PosixFailure(GUEST_EBADF);
+    if ((owner != 0 && owner != static_cast<std::uint32_t>(-1)) ||
+        (group != 0 && group != static_cast<std::uint32_t>(-1)))
+        throw std::runtime_error("fchown: setting owner " + std::to_string(owner) + " or group " + std::to_string(group) + " on descriptor " + std::to_string(d) + " is not supported, the guest process runs as root");
+    return 0;
+}
+
+int APS5_VABI _chown_nid_postfix(const char* path, std::uint32_t owner, std::uint32_t group) {
+    return chown_nid_postfix(path, owner, group);
+}
+
+int APS5_VABI _fchown_nid_postfix(int d, std::uint32_t owner, std::uint32_t group) {
+    return fchown_nid_postfix(d, owner, group);
 }
 
 int APS5_VABI close_nid_postfix(int d) {
